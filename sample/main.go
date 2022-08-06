@@ -33,8 +33,8 @@ func (c *cmdtest) HandleStdin(stdin io.WriteCloser) {
 	iocopy(stdin, os.Stdin)
 }
 
-func (c *cmdtest) HandleStdout(stdin io.ReadCloser) {
-	iocopy(os.Stdout, stdin)
+func (c *cmdtest) HandleStdout(stdout io.ReadCloser) {
+	iocopy(os.Stdout, stdout)
 }
 
 func (c *cmdtest) HandleStderr(stderr io.ReadCloser) {
