@@ -171,8 +171,8 @@ func (e *Expect) ExpectCases(cases ...*Case) (idx int, m []byte, err error) {
 	}
 }
 
-func (e *Expect) Wait() {
-	e.cmd.Wait()
+func (e *Expect) Wait() (exitCode int, err error) {
+	return e.cmd.Wait()
 }
 
 func (e *Expect) Close() {

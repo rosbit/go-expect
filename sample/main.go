@@ -13,14 +13,15 @@ func main() {
 		return
 	}
 
-	cmd, err := expect.Popen(&cmdtest{}, os.Args[1], os.Args[2:]...)
-	// cmd, err := expect.PopenPTY(&cmdtest{}, os.Args[1], os.Args[2:]...)
+	// cmd, err := expect.Popen(&cmdtest{}, os.Args[1], os.Args[2:]...)
+	cmd, err := expect.PopenPTY(&cmdtest{}, os.Args[1], os.Args[2:]...)
 	if err != nil {
 		fmt.Printf("failed to Popen: %v\n", err)
 		return
 	}
 
-	cmd.Wait()
+	exitCode, err := cmd.Wait()
+	fmt.Printf("exitCode: %d, err: %v\n", exitCode, err)
 }
 
 func iocopy(to io.Writer, from io.Reader) {

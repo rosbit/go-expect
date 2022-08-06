@@ -19,6 +19,7 @@ type Cmd struct {
 	cmd *exec.Cmd
 	Exit chan struct{}
 	master, slave *os.File
+	waitErr error
 }
 
 type fnPopen func(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cmd, err error)
@@ -99,8 +100,9 @@ func PopenPTY(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cmd, e
 	return
 }
 
-func (cmd *Cmd) Wait() {
+func (cmd *Cmd) Wait() (exitCode int, err error) {
 	<-cmd.Exit
+	return cmd.cmd.ProcessState.ExitCode(), cmd.waitErr
 }
 
 func (cmd *Cmd) Close() {
@@ -109,7 +111,7 @@ func (cmd *Cmd) Close() {
 }
 
 func (cmd *Cmd) waitToExit() {
-	cmd.cmd.Wait()
+	cmd.waitErr = cmd.cmd.Wait()
 	close(cmd.Exit)
 	cmd.closePTY()
 }
