@@ -15,24 +15,25 @@ type IOHandlers interface {
 	HandleStderr(io.ReadCloser)
 }
 
-type PTY struct {
-	Master *os.File
-	Slave  *os.File
+type Cmd struct {
+	cmd *exec.Cmd
+	Exit chan struct{}
+	master, slave *os.File
 }
 
-type fnPopen func(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *exec.Cmd, p *PTY, err error)
+type fnPopen func(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cmd, err error)
 
-func Popen(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *exec.Cmd, p *PTY, err error) {
-	cmd = exec.Command(cmdPath, arg...)
+func Popen(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cmd, err error) {
+	c := exec.Command(cmdPath, arg...)
 
-	stdin, _ := cmd.StdinPipe()
-	stdout, _ := cmd.StdoutPipe()
+	stdin, _ := c.StdinPipe()
+	stdout, _ := c.StdoutPipe()
 	if s, ok := stdout.(*os.File); ok {
 		makeRaw(s, true)
 	}
-	stderr, _ := cmd.StderrPipe()
+	stderr, _ := c.StderrPipe()
 
-	if err = cmd.Start(); err != nil {
+	if err = c.Start(); err != nil {
 		return
 	}
 
@@ -42,41 +43,42 @@ func Popen(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *exec.Cmd,
 		go ioHandlers.HandleStderr(stderr)
 	}
 
+	cmd = &Cmd{
+		cmd: c,
+		Exit: make(chan struct{}),
+	}
+
+	go cmd.waitToExit()
 	return
 }
 
-func PopenPTY(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *exec.Cmd, p *PTY, err error) {
+func PopenPTY(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cmd, err error) {
 	defer func() {
 		if err == nil {
 			return
 		}
-		if p == nil {
+		if cmd == nil {
 			return
 		}
-		p.Master.Close()
-		p.Slave.Close()
-		p = nil
+		cmd.closePTY()
+		cmd = nil
 	}()
 
-	cmd = exec.Command(cmdPath, arg...)
+	c := exec.Command(cmdPath, arg...)
 
 	m, s, e := pty.Open()
 	if e != nil {
 		err = e
 		return
 	}
-	p = &PTY{
-		Master: m,
-		Slave: s,
-	}
 
 	if err = makeRaw(s); err != nil {
 		return
 	}
 
-	cmd.Stdout, cmd.Stderr, cmd.Stdin = s, s, s
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setctty: true, Setsid: true}
-	if err = cmd.Start(); err != nil {
+	c.Stdout, c.Stderr, c.Stdin = s, s, s
+	c.SysProcAttr = &syscall.SysProcAttr{Setctty: true, Setsid: true}
+	if err = c.Start(); err != nil {
 		return
 	}
 
@@ -86,7 +88,37 @@ func PopenPTY(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *exec.C
 		go ioHandlers.HandleStderr(m)
 	}
 
+	cmd = &Cmd{
+		cmd: c,
+		Exit: make(chan struct{}),
+		master: m,
+		slave: s,
+	}
+
+	go cmd.waitToExit()
 	return
+}
+
+func (cmd *Cmd) Wait() {
+	<-cmd.Exit
+}
+
+func (cmd *Cmd) Close() {
+	cmd.cmd.Process.Kill()
+	cmd.closePTY()
+}
+
+func (cmd *Cmd) waitToExit() {
+	cmd.cmd.Wait()
+	close(cmd.Exit)
+	cmd.closePTY()
+}
+
+func (cmd *Cmd) closePTY() {
+	if cmd.master != nil {
+		cmd.master.Close()
+		cmd.slave.Close()
+	}
 }
 
 func makeRaw(s *os.File, setNonblock ...bool) error {

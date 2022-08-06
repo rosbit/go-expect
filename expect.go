@@ -7,7 +7,6 @@ import (
 	"os"
 	"time"
 	"bytes"
-	"os/exec"
 	"syscall"
 )
 
@@ -28,13 +27,11 @@ type Case struct {
 
 type Expect struct {
 	out chan string
-	cmd *exec.Cmd
+	cmd *Cmd
 	timeout time.Duration
 
 	in chan []byte
 	buffer *bytes.Buffer
-	exit chan struct{}
-	pty *PTY
 }
 
 func Spawn(prog string, arg ...string) (e *Expect, err error) {
@@ -51,21 +48,11 @@ func spawn(popen fnPopen, prog string, arg ...string) (e *Expect, err error) {
 		timeout: defaultTimeout,
 		in: make(chan []byte, 5),
 		buffer: &bytes.Buffer{},
-		exit: make(chan struct{}),
 	}
 
-	if e.cmd, e.pty, err = popen(e, prog, arg...); err != nil {
+	if e.cmd, err = popen(e, prog, arg...); err != nil {
 		return
 	}
-
-	go func() {
-		e.cmd.Wait()
-		close(e.exit)
-		if e.pty != nil {
-			e.pty.Master.Close()
-			e.pty.Slave.Close()
-		}
-	}()
 
 	return
 }
@@ -91,7 +78,7 @@ func (e *Expect) HandleStdout(stdout io.ReadCloser) {
 
 	for {
 		select {
-		case <-e.exit:
+		case <-e.cmd.Exit:
 			return
 		default:
 			buf := make([]byte, 1024)
@@ -140,7 +127,7 @@ func (e *Expect) ExpectCases(cases ...*Case) (idx int, m []byte, err error) {
 
 	for {
 		select {
-		case <-e.exit:
+		case <-e.cmd.Exit:
 			err = io.EOF
 			return
 		case <-time.After(e.timeout):
@@ -155,6 +142,7 @@ func (e *Expect) ExpectCases(cases ...*Case) (idx int, m []byte, err error) {
 			return
 		}
 		buf := e.buffer.Bytes()
+		afterSkip := false
 		for i, c := range cases {
 			loc := c.Exp.FindIndex(buf)
 			if len(loc) == 0 {
@@ -164,6 +152,7 @@ func (e *Expect) ExpectCases(cases ...*Case) (idx int, m []byte, err error) {
 				pos := bytes.IndexByte(buf, c.SkipTill)
 				if pos >= 0 {
 					e.buffer = bytes.NewBuffer(buf[pos+1:])
+					afterSkip = true
 					break
 				}
 			} else if c.MatchedOnly {
@@ -174,20 +163,19 @@ func (e *Expect) ExpectCases(cases ...*Case) (idx int, m []byte, err error) {
 			e.buffer.Reset()
 			return i, buf, nil
 		}
+		if afterSkip {
+			continue
+		}
 		err = NotFound
 		return
 	}
 }
 
 func (e *Expect) Wait() {
-	<-e.exit
+	e.cmd.Wait()
 }
 
 func (e *Expect) Close() {
-	e.cmd.Process.Kill()
-	if e.pty != nil {
-		e.pty.Master.Close()
-		e.pty.Slave.Close()
-	}
+	e.cmd.Close()
 }
 
