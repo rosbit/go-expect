@@ -38,6 +38,14 @@ type Expect struct {
 }
 
 func Spawn(prog string, arg ...string) (e *Expect, err error) {
+	return spawn(Popen, prog, arg...)
+}
+
+func SpawnPTY(prog string, arg ...string) (e *Expect, err error) {
+	return spawn(PopenPTY, prog, arg...)
+}
+
+func spawn(popen fnPopen, prog string, arg ...string) (e *Expect, err error) {
 	e = &Expect{
 		out: make(chan string),
 		timeout: defaultTimeout,
@@ -46,15 +54,17 @@ func Spawn(prog string, arg ...string) (e *Expect, err error) {
 		exit: make(chan struct{}),
 	}
 
-	if e.cmd, e.pty, err = Popen(e, prog, arg...); err != nil {
+	if e.cmd, e.pty, err = popen(e, prog, arg...); err != nil {
 		return
 	}
 
 	go func() {
 		e.cmd.Wait()
 		close(e.exit)
-		e.pty.Master.Close()
-		e.pty.Slave.Close()
+		if e.pty != nil {
+			e.pty.Master.Close()
+			e.pty.Slave.Close()
+		}
 	}()
 
 	return
@@ -175,7 +185,9 @@ func (e *Expect) Wait() {
 
 func (e *Expect) Close() {
 	e.cmd.Process.Kill()
-	e.pty.Master.Close()
-	e.pty.Slave.Close()
+	if e.pty != nil {
+		e.pty.Master.Close()
+		e.pty.Slave.Close()
+	}
 }
 

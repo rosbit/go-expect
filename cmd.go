@@ -20,7 +20,32 @@ type PTY struct {
 	Slave  *os.File
 }
 
+type fnPopen func(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *exec.Cmd, p *PTY, err error)
+
 func Popen(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *exec.Cmd, p *PTY, err error) {
+	cmd = exec.Command(cmdPath, arg...)
+
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	if s, ok := stdout.(*os.File); ok {
+		makeRaw(s, true)
+	}
+	stderr, _ := cmd.StderrPipe()
+
+	if err = cmd.Start(); err != nil {
+		return
+	}
+
+	if ioHandlers != nil {
+		go ioHandlers.HandleStdout(stdout)
+		go ioHandlers.HandleStdin(stdin)
+		go ioHandlers.HandleStderr(stderr)
+	}
+
+	return
+}
+
+func PopenPTY(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *exec.Cmd, p *PTY, err error) {
 	defer func() {
 		if err == nil {
 			return
@@ -45,7 +70,7 @@ func Popen(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *exec.Cmd,
 		Slave: s,
 	}
 
-	if err = makeRaw(m, s); err != nil {
+	if err = makeRaw(s); err != nil {
 		return
 	}
 
@@ -64,8 +89,11 @@ func Popen(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *exec.Cmd,
 	return
 }
 
-func makeRaw(m, s *os.File) error {
+func makeRaw(s *os.File, setNonblock ...bool) error {
 	fd := s.Fd()
 	term.MakeRaw(int(fd))
+	if len(setNonblock) > 0 && setNonblock[0] {
+		return syscall.SetNonblock(int(fd), true)
+	}
 	return nil
 }
