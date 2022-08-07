@@ -19,10 +19,18 @@ var (
 	TimedOut = fmt.Errorf("timed out")
 )
 
+type Action uint8
+const (
+	Continue Action = iota
+	Break
+)
+type FnMatched func(m []byte) Action
+
 type Case struct {
 	Exp *regexp.Regexp
 	SkipTill byte
 	MatchedOnly bool
+	ExpMatched FnMatched
 }
 
 type Expect struct {
@@ -105,17 +113,27 @@ func (e *Expect) HandleStdout(stdout io.ReadCloser) {
 func (e *Expect) HandleStderr(stderr io.ReadCloser) {
 }
 
-func (e *Expect) Expect(expr string) ([]byte, error) {
+func (e *Expect) Expect(expr string, expMathed ...FnMatched) ([]byte, error) {
 	re, err := regexp.Compile(expr)
 	if err != nil {
 		return nil, err
 	}
-	_, m, err := e.ExpectCases(&Case{Exp: re, MatchedOnly: true})
+	_, m, err := e.ExpectCases(&Case{Exp: re, MatchedOnly: true, ExpMatched: func()FnMatched{
+		if len(expMathed) > 0 {
+			return expMathed[0]
+		}
+		return nil
+	}()})
 	return m, err
 }
 
-func (e *Expect) ExpectRegexp(re *regexp.Regexp) ([]byte, error) {
-	_, m, err := e.ExpectCases(&Case{Exp: re, MatchedOnly: true})
+func (e *Expect) ExpectRegexp(re *regexp.Regexp, expMathed ...FnMatched) ([]byte, error) {
+	_, m, err := e.ExpectCases(&Case{Exp: re, MatchedOnly: true, ExpMatched: func()FnMatched{
+		if len(expMathed) > 0 {
+			return expMathed[0]
+		}
+		return nil
+	}()})
 	return m, err
 }
 
@@ -143,6 +161,7 @@ func (e *Expect) ExpectCases(cases ...*Case) (idx int, m []byte, err error) {
 		}
 		buf := e.buffer.Bytes()
 		afterSkip := false
+Again:
 		for i, c := range cases {
 			loc := c.Exp.FindIndex(buf)
 			if len(loc) == 0 {
@@ -151,17 +170,47 @@ func (e *Expect) ExpectCases(cases ...*Case) (idx int, m []byte, err error) {
 			if c.SkipTill > 0 {
 				pos := bytes.IndexByte(buf, c.SkipTill)
 				if pos >= 0 {
-					e.buffer = bytes.NewBuffer(buf[pos+1:])
+					if pos == len(buf) - 1 {
+						e.buffer.Reset()
+						afterSkip = true
+						break
+					}
+					buf = buf[pos+1:]
+					goto Again
+				}
+			} else if c.MatchedOnly {
+				idx, m = i, buf[loc[0]:loc[1]]
+				if c.ExpMatched == nil || c.ExpMatched(m) != Continue {
+					e.buffer = bytes.NewBuffer(buf[loc[1]:])
+					return
+				}
+				if loc[1] == len(buf) {
+					e.buffer.Reset()
 					afterSkip = true
 					break
 				}
-			} else if c.MatchedOnly {
-				e.buffer = bytes.NewBuffer(buf[loc[1]:])
-				idx, m = i, buf[loc[0]:loc[1]]
+				buf = buf[loc[1]:]
+				goto Again
+			}
+
+			if c.ExpMatched == nil {
+				idx, m = i, buf
+				e.buffer.Reset()
 				return
 			}
-			e.buffer.Reset()
-			return i, buf, nil
+
+			idx, m = i, buf[loc[0]:loc[1]]
+			if c.ExpMatched(m) != Continue {
+				e.buffer = bytes.NewBuffer(buf[loc[1]:])
+				return
+			}
+			if loc[1] == len(buf) {
+				e.buffer.Reset()
+				afterSkip = true
+				break
+			}
+			buf = buf[loc[1]:]
+			goto Again
 		}
 		if afterSkip {
 			continue

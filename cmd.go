@@ -27,26 +27,38 @@ type fnPopen func(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cm
 func Popen(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cmd, err error) {
 	c := exec.Command(cmdPath, arg...)
 
-	stdin, _ := c.StdinPipe()
-	stdout, _ := c.StdoutPipe()
+	stdin, e := c.StdinPipe()
+	if e != nil {
+		err = e
+		return
+	}
+	stdout, e := c.StdoutPipe()
+	if e != nil {
+		err = e
+		return
+	}
 	if s, ok := stdout.(*os.File); ok {
 		makeRaw(s, true)
 	}
-	stderr, _ := c.StderrPipe()
+	stderr, e := c.StderrPipe()
+	if e != nil {
+		err = e
+		return
+	}
 
 	if err = c.Start(); err != nil {
 		return
 	}
 
-	if ioHandlers != nil {
-		go ioHandlers.HandleStdout(stdout)
-		go ioHandlers.HandleStdin(stdin)
-		go ioHandlers.HandleStderr(stderr)
-	}
-
 	cmd = &Cmd{
 		cmd: c,
 		Exit: make(chan struct{}),
+	}
+
+	if ioHandlers != nil {
+		go ioHandlers.HandleStdin(stdin)
+		go ioHandlers.HandleStdout(stdout)
+		go ioHandlers.HandleStderr(stderr)
 	}
 
 	go cmd.waitToExit()
@@ -83,17 +95,17 @@ func PopenPTY(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cmd, e
 		return
 	}
 
-	if ioHandlers != nil {
-		go ioHandlers.HandleStdout(m)
-		go ioHandlers.HandleStdin(m)
-		go ioHandlers.HandleStderr(m)
-	}
-
 	cmd = &Cmd{
 		cmd: c,
 		Exit: make(chan struct{}),
 		master: m,
 		slave: s,
+	}
+
+	if ioHandlers != nil {
+		go ioHandlers.HandleStdout(m)
+		go ioHandlers.HandleStdin(m)
+		go ioHandlers.HandleStderr(m)
 	}
 
 	go cmd.waitToExit()
