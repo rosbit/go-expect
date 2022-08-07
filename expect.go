@@ -180,17 +180,11 @@ Again:
 				}
 			} else if c.MatchedOnly {
 				idx, m = i, buf[loc[0]:loc[1]]
-				if c.ExpMatched == nil || c.ExpMatched(m) != Continue {
+				if c.ExpMatched == nil {
 					e.buffer = bytes.NewBuffer(buf[loc[1]:])
 					return
 				}
-				if loc[1] == len(buf) {
-					e.buffer.Reset()
-					afterSkip = true
-					break
-				}
-				buf = buf[loc[1]:]
-				goto Again
+				goto CallExpMatched
 			}
 
 			if c.ExpMatched == nil {
@@ -200,6 +194,7 @@ Again:
 			}
 
 			idx, m = i, buf[loc[0]:loc[1]]
+CallExpMatched:
 			if c.ExpMatched(m) != Continue {
 				e.buffer = bytes.NewBuffer(buf[loc[1]:])
 				return
