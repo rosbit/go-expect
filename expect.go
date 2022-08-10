@@ -17,6 +17,8 @@ const (
 var (
 	NotFound = fmt.Errorf("not matched")
 	TimedOut = fmt.Errorf("timed out")
+
+	removeColorRE = regexp.MustCompile("\x1b\\[[0-9;]*[mK]")
 )
 
 type Action uint8
@@ -37,6 +39,7 @@ type Expect struct {
 	out chan string
 	cmd *Cmd
 	timeout time.Duration
+	removeColor bool
 
 	in chan []byte
 	buffer *bytes.Buffer
@@ -67,6 +70,10 @@ func spawn(popen fnPopen, prog string, arg ...string) (e *Expect, err error) {
 
 func (e *Expect) SetTimeout(d time.Duration) {
 	e.timeout = d
+}
+
+func (e *Expect) RemoveColor() {
+	e.removeColor = true
 }
 
 func (e *Expect) Send(s string) {
@@ -105,7 +112,11 @@ func (e *Expect) HandleStdout(stdout io.ReadCloser) {
 				continue
 			}
 
-			e.in <- buf[:n]
+			if !e.removeColor {
+				e.in <- buf[:n]
+			} else {
+				e.in <- removeColorRE.ReplaceAll(buf[:n], []byte(""))
+			}
 		}
 	}
 }
@@ -162,8 +173,10 @@ func (e *Expect) ExpectCases(cases ...*Case) (idx int, m []byte, err error) {
 		buf := e.buffer.Bytes()
 		afterSkip := false
 Again:
+		// fmt.Printf("buf: >>>%s<<<, len: %d, %x\n", buf, len(buf), buf)
 		for i, c := range cases {
 			loc := c.Exp.FindIndex(buf)
+			// fmt.Printf(" i: %d, loc: %v\n", i, loc)
 			if len(loc) == 0 {
 				continue
 			}
