@@ -8,5 +8,5 @@
 
 2. Call expect.Spawn/SpawnPTY to implement TCL-like `expect`
 
-    See [go-trealla](https://github.com/rosbit/go-trealla).
-
+    - [go-trealla](https://github.com/rosbit/go-trealla), interacts with trealla Prolog.
+    - [go-qjs](https://github.com/rosbit/go-qjs), interacts with QuickJS.
