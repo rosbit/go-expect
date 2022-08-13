@@ -8,5 +8,6 @@
 
 2. Call expect.Spawn/SpawnPTY to implement TCL-like `expect`
 
-    - [go-trealla](https://github.com/rosbit/go-trealla), interacts with trealla Prolog.
-    - [go-qjs](https://github.com/rosbit/go-qjs), interacts with QuickJS.
+    - [go-trealla](https://github.com/rosbit/go-trealla), interacts with trealla, a Prolog interpreter.
+    - [go-qjs](https://github.com/rosbit/go-qjs), interacts with QuickJS, a JavaScript engine.
+    - [go-deno](https://github.com/rosbit/go-deno), interacts with Deno, a JavaScript/TypeScript runtime engine.
