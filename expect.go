@@ -27,6 +27,7 @@ const (
 	Break
 )
 type FnMatched func(m []byte) Action
+type FnNotMatched func(m []byte) (skipN int)
 
 type Case struct {
 	Exp *regexp.Regexp
@@ -38,27 +39,38 @@ type Case struct {
 type Expect struct {
 	out chan string
 	cmd *Cmd
+	envs map[string]string
 	timeout time.Duration
 	removeColor bool
 
 	in chan []byte
 	buffer *bytes.Buffer
+	notMatched FnNotMatched
 }
 
 func Spawn(prog string, arg ...string) (e *Expect, err error) {
-	return spawn(Popen, prog, arg...)
+	return spawn(nil, Popen, prog, arg...)
+}
+
+func SpawnWithEnvs(envs map[string]string, prog string, arg ...string) (e *Expect, err error) {
+	return spawn(envs, Popen, prog, arg...)
 }
 
 func SpawnPTY(prog string, arg ...string) (e *Expect, err error) {
-	return spawn(PopenPTY, prog, arg...)
+	return spawn(nil, PopenPTY, prog, arg...)
 }
 
-func spawn(popen fnPopen, prog string, arg ...string) (e *Expect, err error) {
+func SpawnPTYWithEnvs(envs map[string]string, prog string, arg ...string) (e *Expect, err error) {
+	return spawn(envs, PopenPTY, prog, arg...)
+}
+
+func spawn(envs map[string]string, popen fnPopen, prog string, arg ...string) (e *Expect, err error) {
 	e = &Expect{
 		out: make(chan string),
 		timeout: defaultTimeout,
 		in: make(chan []byte, 5),
 		buffer: &bytes.Buffer{},
+		envs: envs,
 	}
 
 	if e.cmd, err = popen(e, prog, arg...); err != nil {
@@ -74,6 +86,10 @@ func (e *Expect) SetTimeout(d time.Duration) {
 
 func (e *Expect) RemoveColor() {
 	e.removeColor = true
+}
+
+func (e *Expect) SetNotMatchedHandler(notMatched FnNotMatched) {
+	e.notMatched = notMatched
 }
 
 func (e *Expect) Send(s string) {
@@ -122,6 +138,10 @@ func (e *Expect) HandleStdout(stdout io.ReadCloser) {
 }
 
 func (e *Expect) HandleStderr(stderr io.ReadCloser) {
+}
+
+func (e *Expect) GetEnvs() map[string]string {
+	return e.envs
 }
 
 func (e *Expect) Expect(expr string, expMathed ...FnMatched) ([]byte, error) {
@@ -223,8 +243,20 @@ CallExpMatched:
 		if afterSkip {
 			continue
 		}
-		err = NotFound
-		return
+
+		if e.notMatched == nil {
+			err = NotFound
+			return
+		}
+		skipN := e.notMatched(m)
+		if skipN <= 0 {
+			continue
+		}
+		if skipN >= len(buf) {
+			e.buffer.Reset()
+		} else {
+			e.buffer = bytes.NewBuffer(buf[skipN:])
+		}
 	}
 }
 

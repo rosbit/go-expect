@@ -4,6 +4,7 @@ import (
 	"github.com/creack/pty"
 	"golang.org/x/term"
 	"os/exec"
+	"fmt"
 	"io"
 	"os"
 	"syscall"
@@ -13,6 +14,7 @@ type IOHandlers interface {
 	HandleStdin(io.WriteCloser)
 	HandleStdout(io.ReadCloser)
 	HandleStderr(io.ReadCloser)
+	GetEnvs() map[string]string
 }
 
 type Cmd struct {
@@ -26,6 +28,7 @@ type fnPopen func(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cm
 
 func Popen(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cmd, err error) {
 	c := exec.Command(cmdPath, arg...)
+	setEnvs(c, ioHandlers)
 
 	stdin, e := c.StdinPipe()
 	if e != nil {
@@ -78,6 +81,7 @@ func PopenPTY(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cmd, e
 	}()
 
 	c := exec.Command(cmdPath, arg...)
+	setEnvs(c, ioHandlers)
 
 	m, s, e := pty.Open()
 	if e != nil {
@@ -110,6 +114,21 @@ func PopenPTY(ioHandlers IOHandlers, cmdPath string, arg ...string) (cmd *Cmd, e
 
 	go cmd.waitToExit()
 	return
+}
+
+func setEnvs(c *exec.Cmd, ioHandlers IOHandlers) {
+	if ioHandlers == nil {
+		return
+	}
+	envs := ioHandlers.GetEnvs()
+	if len(envs) == 0 {
+		return
+	}
+	oldEnvs := c.Environ()
+	for k, v := range envs {
+		oldEnvs = append(oldEnvs, fmt.Sprintf("%s=%s", k, v))
+	}
+	c.Env = oldEnvs
 }
 
 func (cmd *Cmd) Wait() (exitCode int, err error) {
